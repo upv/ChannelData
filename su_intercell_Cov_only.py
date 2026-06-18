@@ -13,12 +13,14 @@ thermal), IoT = (I + N) / N, by scaling the common interferer transmit power.
 
 This script BATCH-GENERATES the channel for every model
   * channel model : UMa, UMi, CDL-B, CDL-C
-and for each model saves TWO pictures:
-  * one localization window (BS, served UE, interferers), and
+and for each model saves THREE pictures:
+  * one localization window (BS, served UE, interferers),
   * one bundle (grid) of received-covariance windows, one per case over
         IoT [dB]     : 0, 10, 20
         received SNR : -20, 0, 20 dB
-    each window annotated with its channel / IoT / SNR case.
+    each window annotated with its channel / IoT / SNR case, and
+  * one bundle (grid) of mixed-channel magnitude windows (target +
+    interference + noise), one per IoT / SNR case.
 The per-model channel tensors are stored in .pkl files with matching names.
 
 Requires: sionna>=2.0 (PyTorch backend), torch, numpy, matplotlib.
@@ -231,6 +233,43 @@ def make_cov_bundle(model_name, R_ut, R_int_unit, gain, g_int):
     return out_png
 
 
+# ----------- bundle of mixed-channel magnitude windows (IoT x SNR) -------- #
+def make_mag_bundle(model_name, H, gain, g_int):
+    """Grid of mixed received-magnitude windows (target + interference + noise),
+    one per (IoT, SNR) case. The per-(BS antenna, subcarrier) received power is
+        P_sig*|H_target|^2 + P_int*sum_j|H_j|^2 + N,    N = 1,
+    averaged over UT antennas and OFDM symbols."""
+    pwr      = [np.mean(np.abs(H[u]) ** 2, axis=(0, 1)) for u in range(NUM_UT)]
+    pwr_sig  = pwr[0]                                # served-user power map [Nbs, sc]
+    pwr_int  = sum(pwr[j] for j in range(1, NUM_UT)) # aggregate interferer power map
+
+    nrow, ncol = len(IOT_LIST), len(SNR_LIST)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(5.0 * ncol, 4.4 * nrow),
+                             squeeze=False)
+    fig.suptitle("Mixed channel magnitude  |target + interference + noise|"
+                 f"   -   {model_name}", fontsize=15, fontweight="bold")
+
+    for r, iot_db in enumerate(IOT_LIST):
+        p_int = (10 ** (iot_db / 10.0) - 1.0) / np.sum(g_int)
+        for c, snr_db in enumerate(SNR_LIST):
+            p_sig = 10 ** (snr_db / 10.0) / gain[0]
+            mixed = p_sig * pwr_sig + p_int * pwr_int + 1.0      # received power, N=1
+            mag_db = 10 * np.log10(mixed + 1e-12)                # |.| in dB
+            ax = axes[r, c]
+            im = ax.imshow(mag_db, aspect="auto", origin="lower", cmap="viridis",
+                           extent=[0, FFT_SIZE, 0, NUM_BS_ANT])
+            ax.set_title(f"{model_name}  |  IoT = {iot_db:.0f} dB,  "
+                         f"SNR = {snr_db:.0f} dB", fontsize=10)
+            ax.set_xlabel("subcarrier idx"); ax.set_ylabel("BS antenna idx")
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="|mix| [dB]")
+
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    out_png = f"su_intercell_mag_{model_name}.png"
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_png
+
+
 # ------------------------------ main batch loop --------------------------- #
 # Clear all existing .png files before generating the new pictures.
 old_pngs = glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "*.png"))
@@ -261,8 +300,10 @@ for model_name in CHANNELS:
 
     loc_png = make_location_figure(model_name)
     cov_png = make_cov_bundle(model_name, R_ut, R_int_unit, gain, g_int)
+    mag_png = make_mag_bundle(model_name, H, gain, g_int)
     print(f"    location -> {loc_png}")
     print(f"    covariance bundle ({len(IOT_LIST)}x{len(SNR_LIST)} cases) -> {cov_png}")
+    print(f"    mixed-magnitude bundle ({len(IOT_LIST)}x{len(SNR_LIST)} cases) -> {mag_png}")
 
-n_fig = len(CHANNELS) * 2
+n_fig = len(CHANNELS) * 3
 print(f"\nDone: {n_fig} figures and {len(CHANNELS)} channel files saved.")
