@@ -60,7 +60,15 @@ SNR_LIST     = [-20.0, 0.0, 20.0]   # received SNR vs thermal noise [dB]
 SEED = int(np.random.SeedSequence().generate_state(1)[0])
 config.seed = SEED
 rng = np.random.default_rng(SEED)
+
+# Run on the GPU when one is available, otherwise fall back to the CPU. Sionna
+# performs its computation on `config.device`; setting it to None auto-selects
+# "cuda:0" if a CUDA device is present.
+DEVICE = "cuda:0" if (torch.cuda.is_available() and torch.cuda.device_count() > 0) \
+         else "cpu"
+config.device = DEVICE
 print(f"Random UE drop seed (new each launch) = {SEED}")
+print(f"Sionna compute device = {config.device}")
 
 # ------------------------ random user location ---------------------------- #
 ut_dist = rng.uniform(50.0, 250.0)                      # [m]
@@ -69,12 +77,13 @@ ut_xy   = np.array([ut_dist * np.cos(ut_az), ut_dist * np.sin(ut_az)])
 
 # UE yaw points back towards the BS (so its panel faces the serving site).
 yaw_to_bs      = np.arctan2(-ut_xy[1], -ut_xy[0])
-ut_orientation = torch.tensor([yaw_to_bs, 0.0, 0.0], dtype=torch.float32)
+ut_orientation = torch.tensor([yaw_to_bs, 0.0, 0.0], dtype=torch.float32,
+                              device=DEVICE)
 
 # Random heading for the motion -> velocity vector (constant speed).
 heading     = rng.uniform(0.0, 2.0 * np.pi)
 velocity    = np.array([SPEED * np.cos(heading), SPEED * np.sin(heading), 0.0])
-ut_velocity = torch.tensor(velocity, dtype=torch.float32)
+ut_velocity = torch.tensor(velocity, dtype=torch.float32, device=DEVICE)
 
 max_doppler = SPEED * CARRIER_FREQUENCY / C0            # [Hz]
 

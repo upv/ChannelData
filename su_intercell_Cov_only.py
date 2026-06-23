@@ -67,7 +67,14 @@ PATH_LOSS_EXPONENT = 3.5        # path-loss exponent for the CDL geometry scalin
 SEED = int(np.random.SeedSequence().generate_state(1)[0])
 config.seed = SEED
 rng = np.random.default_rng(SEED)
+
+# Run on the GPU when one is available, otherwise fall back to the CPU. Sionna
+# performs its computation on `config.device`.
+DEVICE = "cuda:0" if (torch.cuda.is_available() and torch.cuda.device_count() > 0) \
+         else "cpu"
+config.device = DEVICE
 print(f"Random layout seed (new each launch) = {SEED}")
+print(f"Sionna compute device = {config.device}")
 
 NUM_UT   = 1 + NUM_INTERFERERS   # UT 0 = served user
 R_CELL   = ISD / np.sqrt(3.0)    # hex centre-to-vertex radius
@@ -108,7 +115,7 @@ assert bs_array.num_ant == NUM_BS_ANT
 # --------------------- channel model (serving BS = RX) -------------------- #
 def col3(xy, z):                                     # -> [1, n, 3] float32
     arr = np.concatenate([xy, np.full((xy.shape[0], 1), z)], axis=1)
-    return torch.tensor(arr[None], dtype=torch.float32)
+    return torch.tensor(arr[None], dtype=torch.float32, device=DEVICE)
 
 frequencies = subcarrier_frequencies(FFT_SIZE, SUBCARRIER_SPACING)
 fs = SUBCARRIER_SPACING * FFT_SIZE
@@ -122,10 +129,10 @@ def make_system_channel(model_cls, bs_height):
     model.set_topology(
         ut_loc          = col3(ut_xy, UT_HEIGHT),
         bs_loc          = col3(serving_bs[None], bs_height),
-        ut_orientations = torch.zeros([1, NUM_UT, 3], dtype=torch.float32),
-        bs_orientations = torch.zeros([1, 1, 3], dtype=torch.float32),
-        ut_velocities   = torch.zeros([1, NUM_UT, 3], dtype=torch.float32),
-        in_state        = torch.zeros([1, NUM_UT], dtype=torch.bool))  # outdoor
+        ut_orientations = torch.zeros([1, NUM_UT, 3], dtype=torch.float32, device=DEVICE),
+        bs_orientations = torch.zeros([1, 1, 3], dtype=torch.float32, device=DEVICE),
+        ut_velocities   = torch.zeros([1, NUM_UT, 3], dtype=torch.float32, device=DEVICE),
+        in_state        = torch.zeros([1, NUM_UT], dtype=torch.bool, device=DEVICE))  # outdoor
     return model(NUM_OFDM_SYMBOLS, fs)
 
 
@@ -138,8 +145,8 @@ def make_cdl_channel(model_letter):
     a_cdl, tau_cdl = model(NUM_UT, NUM_OFDM_SYMBOLS, fs)
     # a_cdl: [NUM_UT, 1, Nbs, 1, Nut, paths, time], tau_cdl: [NUM_UT, 1, 1, paths]
     pl_lin = (dist / dist[0]) ** (-PATH_LOSS_EXPONENT)          # relative gain
-    a_cdl  = a_cdl * torch.tensor(np.sqrt(pl_lin), dtype=a_cdl.dtype
-                                  ).view(NUM_UT, 1, 1, 1, 1, 1, 1)
+    a_cdl  = a_cdl * torch.tensor(np.sqrt(pl_lin), dtype=a_cdl.dtype,
+                                  device=a_cdl.device).view(NUM_UT, 1, 1, 1, 1, 1, 1)
     # re-arrange to the multi-UT convention: [1, 1, Nbs, NUM_UT, Nut, paths, time]
     a_out   = a_cdl.squeeze(3).permute(1, 2, 0, 3, 4, 5).unsqueeze(0)
     tau_out = tau_cdl[:, :, 0, :].permute(1, 0, 2).unsqueeze(0)  # [1,1,NUM_UT,paths]
