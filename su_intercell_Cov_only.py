@@ -21,14 +21,14 @@ and for each model saves THREE pictures:
     each window annotated with its channel / IoT / SNR case, and
   * one bundle (grid) of mixed-channel magnitude windows (target +
     interference + noise), one per IoT / SNR case.
-The per-model channel tensors are stored in .pkl files with matching names.
+The per-model channel tensors are stored in .npy files with matching names
+(numpy-version-independent; loadable with numpy==1.26 via np.load).
 
 Requires: sionna>=2.0 (PyTorch backend), torch, numpy, matplotlib.
 """
 
 import glob
 import os
-import pickle
 
 import numpy as np
 import torch
@@ -289,13 +289,11 @@ for model_name in CHANNELS:
     R_int_unit = sum(R_ut[j] for j in range(1, NUM_UT))     # unit-Tx interferer cov
     H_mag_db   = 20 * np.log10(np.mean(np.abs(H[0]), axis=(1, 2)) + 1e-12)
 
-    # Save the generated channel (model-dependent, independent of IoT/SNR).
-    chan_file = f"su_intercell_channel_{model_name}.pkl"
-    with open(chan_file, "wb") as fp:
-        pickle.dump({"channel_model": model_name, "seed": SEED, "h": h,
-                     "ut_xy": ut_xy, "serving_bs": serving_bs,
-                     "neigh_bs": neigh_bs, "dist": dist, "gain": gain,
-                     "H_mag_db": H_mag_db}, fp, protocol=pickle.HIGHEST_PROTOCOL)
+    # Save the generated channel tensor (model-dependent, independent of IoT/SNR)
+    # as a .npy file. The .npy format is numpy-version-independent, so it loads
+    # with any numpy (including numpy==1.26) via np.load(chan_file).
+    chan_file = f"su_intercell_channel_{model_name}.npy"
+    np.save(chan_file, h.astype(np.complex64))
     print(f"[{model_name}] h shape {h.shape}  ->  saved channel to {chan_file}")
 
     loc_png = make_location_figure(model_name)

@@ -1,0 +1,6 @@
+# Generated channel tensors and figures
+*.npy
+*.png
+
+# Python caches
+__pycache__/

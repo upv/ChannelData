@@ -16,14 +16,14 @@ profile saves THREE pictures:
     one per received-SNR case, and
   * one bundle (grid) of mixed-channel magnitude windows |target + noise|,
     one per received-SNR case.
-The per-profile channel tensors are stored in .pkl files with matching names.
+The per-profile channel tensors are stored in .npy files with matching names
+(numpy-version-independent; loadable with numpy==1.26 via np.load).
 
 Requires: sionna>=2.0 (PyTorch backend), torch, numpy, matplotlib.
 """
 
 import glob
 import os
-import pickle
 
 import numpy as np
 import torch
@@ -204,14 +204,11 @@ for letter in CDL_PROFILES:
     gain = float(np.mean(np.abs(H) ** 2))      # linear power gain
     R    = cov(H)                              # BS spatial covariance
 
-    # Save the generated channel (profile-dependent, independent of SNR).
-    chan_file = f"su_los_channel_{model_name}.pkl"
-    with open(chan_file, "wb") as fp:
-        pickle.dump({"channel_model": model_name, "los": letter in LOS_MODELS,
-                     "seed": SEED, "H": H.astype(np.complex64), "R": R,
-                     "gain": gain, "ut_xy": ut_xy, "velocity": velocity,
-                     "max_doppler": max_doppler}, fp,
-                    protocol=pickle.HIGHEST_PROTOCOL)
+    # Save the generated channel tensor (profile-dependent, independent of SNR)
+    # as a .npy file. The .npy format is numpy-version-independent, so it loads
+    # with any numpy (including numpy==1.26) via np.load(chan_file).
+    chan_file = f"su_los_channel_{model_name}.npy"
+    np.save(chan_file, H.astype(np.complex64))
     print(f"[{model_name}] H shape {H.shape}  ->  saved channel to {chan_file}")
 
     loc_png = make_location_figure(model_name)
